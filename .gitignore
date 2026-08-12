@@ -1,1 +1,18 @@
+# Upstream Linux source
 kernel/linux-src/
+
+# Generated build artifacts
+build/
+
+# Generated root filesystem
+rootfs/
+
+# Compiled binaries
+*.o
+*.ko
+*.a
+*.so
+
+# Temporary/editor files
+*~
+*.swp
