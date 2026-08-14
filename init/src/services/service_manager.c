@@ -329,68 +329,51 @@ void service_handle_exit(
     int status
 )
 {
-    /*
-     * Find service associated with PID.
-     */
-
     for (int i = 0; i < service_count; i++) {
 
-        raccoon_service_t *service =
-            &services[i];
+        raccoon_service_t *service = &services[i];
 
-
-        if (service->pid != pid) {
+        if (service->pid != pid)
             continue;
-        }
-
 
         /*
          * Process exited normally.
          */
-
         if (WIFEXITED(status)) {
 
-            int exit_status =
-                WEXITSTATUS(status);
+            int exit_status = WEXITSTATUS(status);
 
             printf(
-                "raccoon-init: service '%s' "
-                "exited (status=%d)\n",
+                "raccoon-init: service '%s' exited "
+                "(status=%d)\n",
                 service->name,
                 exit_status
             );
         }
 
-
         /*
          * Process was terminated by a signal.
          */
-
         else if (WIFSIGNALED(status)) {
 
-            int signal_number =
-                WTERMSIG(status);
+            int signal_number = WTERMSIG(status);
 
             printf(
-                "raccoon-init: service '%s' "
-                "terminated (signal=%d)\n",
+                "raccoon-init: service '%s' terminated "
+                "(signal=%d)\n",
                 service->name,
                 signal_number
             );
         }
 
-
         /*
-         * Service no longer owns this PID.
+         * Process is no longer running.
          */
-
         service->pid = -1;
 
-
         /*
-         * Decide what happens next.
+         * Decide whether the service should restart.
          */
-
         if (service->restart) {
 
             service->state = SERVICE_FAILED;
@@ -400,20 +383,17 @@ void service_handle_exit(
                 "marked for restart\n",
                 service->name
             );
-        }
 
-        else {
+        } else {
 
             service->state = SERVICE_STOPPED;
         }
-
 
         fflush(stdout);
 
         return;
     }
 }
-
 
 /* ---------------------------------------------------------
  * Restart failed services
@@ -423,14 +403,10 @@ void service_restart_failed(void)
 {
     for (int i = 0; i < service_count; i++) {
 
-        raccoon_service_t *service =
-            &services[i];
+        raccoon_service_t *service = &services[i];
 
-
-        if (service->state != SERVICE_FAILED) {
+        if (service->state != SERVICE_FAILED)
             continue;
-        }
-
 
         printf(
             "raccoon-init: restarting service '%s'...\n",
@@ -439,8 +415,14 @@ void service_restart_failed(void)
 
         fflush(stdout);
 
-
         if (service_start(i) != 0) {
+
+            /*
+             * Restart failed.
+             * Keep the service in FAILED state so
+             * the supervisor can try again later.
+             */
+            service->state = SERVICE_FAILED;
 
             fprintf(
                 stderr,
@@ -448,10 +430,24 @@ void service_restart_failed(void)
                 "service '%s'\n",
                 service->name
             );
+
+        } else {
+
+            /*
+             * service_start() should set the state to
+             * STARTING/RUNNING and assign a new PID.
+             */
+            printf(
+                "raccoon-init: service '%s' restarted "
+                "(PID %d)\n",
+                service->name,
+                service->pid
+            );
         }
+
+        fflush(stdout);
     }
 }
-
 
 /* ---------------------------------------------------------
  * Print service status

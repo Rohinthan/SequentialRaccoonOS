@@ -1,13 +1,19 @@
 /*
  * Sequential Raccoon OS
- * Raccoon Init v0.2.1
+ * Raccoon Init v0.3
  *
  * PID 1 responsibilities:
+ *
  *   - Configure console
  *   - Mount basic filesystems
  *   - Set hostname
+ *   - Initialize service manager
+ *   - Register system services
+ *   - Start registered services
  *   - Start the interactive shell
  *   - Reap child processes
+ *   - Detect service exits
+ *   - Restart failed services
  *   - Restart the shell if it exits
  */
 
@@ -24,6 +30,7 @@
 #include <termios.h>
 #include <sys/ioctl.h>
 
+#include "services/service_manager.h"
 
 
 /* ---------------------------------------------------------
@@ -51,6 +58,7 @@ static void mount_filesystems(void)
     }
 }
 
+
 /* ---------------------------------------------------------
  * Configure standard input/output/error
  * --------------------------------------------------------- */
@@ -77,6 +85,7 @@ static void setup_console(void)
         close(fd);
 }
 
+
 /* ---------------------------------------------------------
  * Set system hostname
  * --------------------------------------------------------- */
@@ -102,7 +111,10 @@ static void setup_hostname(void)
 
     /* Remove trailing newline */
     for (size_t i = 0; hostname[i] != '\0'; i++) {
-        if (hostname[i] == '\n' || hostname[i] == '\r') {
+
+        if (hostname[i] == '\n' ||
+            hostname[i] == '\r') {
+
             hostname[i] = '\0';
             break;
         }
@@ -111,9 +123,17 @@ static void setup_hostname(void)
     if (hostname[0] == '\0')
         return;
 
-    if (sethostname(hostname, strlen(hostname)) != 0)
-        perror("raccoon-init: sethostname");
+    if (sethostname(
+            hostname,
+            strlen(hostname)
+        ) != 0) {
+
+        perror(
+            "raccoon-init: sethostname"
+        );
+    }
 }
+
 
 /* ---------------------------------------------------------
  * Print boot banner
@@ -124,24 +144,59 @@ static void print_banner(void)
     char hostname[256];
 
     printf("\n");
-    printf("========================================\n");
-    printf("   Sequential Raccoon OS v0.2.1\n");
-    printf("========================================\n");
-    printf("PID 1: Raccoon Init\n");
 
-    if (gethostname(hostname, sizeof(hostname)) == 0) {
+    printf(
+        "========================================\n"
+    );
+
+    printf(
+        "   Sequential Raccoon OS v0.4.0\n"
+    );
+
+    printf(
+        "========================================\n"
+    );
+
+    printf(
+        "PID 1: Raccoon Init\n"
+    );
+
+    if (gethostname(
+            hostname,
+            sizeof(hostname)
+        ) == 0) {
+
         hostname[sizeof(hostname) - 1] = '\0';
-        printf("Hostname: %s\n", hostname);
+
+        printf(
+            "Hostname: %s\n",
+            hostname
+        );
+
     } else {
-        printf("Hostname: (unknown)\n");
+
+        printf(
+            "Hostname: (unknown)\n"
+        );
     }
 
-    printf("Init: supervisor mode\n");
-    printf("========================================\n");
+    printf(
+        "Init: supervisor mode\n"
+    );
+
+    printf(
+        "Services: enabled\n"
+    );
+
+    printf(
+        "========================================\n"
+    );
+
     printf("\n");
 
     fflush(stdout);
 }
+
 
 /* ---------------------------------------------------------
  * Start interactive shell
@@ -152,30 +207,39 @@ static pid_t start_shell(void)
     pid_t pid = fork();
 
     if (pid < 0) {
-        perror("raccoon-init: fork");
+
+        perror(
+            "raccoon-init: fork"
+        );
+
         return -1;
     }
+
+
+    /* -----------------------------------------------------
+     * Shell child
+     * ----------------------------------------------------- */
 
     if (pid == 0) {
 
         /*
-         * -------------------------------------------------
          * Create a new session for the shell.
-         * -------------------------------------------------
          */
 
         if (setsid() < 0) {
-            perror("raccoon-init: setsid");
+
+            perror(
+                "raccoon-init: setsid"
+            );
+
             _exit(127);
         }
 
 
         /*
-         * -------------------------------------------------
          * Open the system console.
          *
-         * In the current QEMU setup this is ttyS0.
-         * -------------------------------------------------
+         * Current QEMU configuration uses ttyS0.
          */
 
         int tty_fd = open(
@@ -184,40 +248,68 @@ static pid_t start_shell(void)
         );
 
         if (tty_fd < 0) {
-            perror("raccoon-init: open /dev/ttyS0");
+
+            perror(
+                "raccoon-init: open /dev/ttyS0"
+            );
+
             _exit(127);
         }
 
 
         /*
-         * -------------------------------------------------
          * Make ttyS0 the controlling terminal.
-         * -------------------------------------------------
          */
 
-        if (ioctl(tty_fd, TIOCSCTTY, 0) < 0) {
-            perror("raccoon-init: TIOCSCTTY");
+        if (ioctl(
+                tty_fd,
+                TIOCSCTTY,
+                0
+            ) < 0) {
+
+            perror(
+                "raccoon-init: TIOCSCTTY"
+            );
+
             close(tty_fd);
+
             _exit(127);
         }
 
 
-//temporarily removed
-
         /*
-         * -------------------------------------------------
-         * Connect stdin/stdout/stderr to the terminal.
-         * -------------------------------------------------
+         * Connect stdin/stdout/stderr.
          */
 
-        if (dup2(tty_fd, STDIN_FILENO) < 0)
-            perror("raccoon-init: dup2 stdin");
+        if (dup2(
+                tty_fd,
+                STDIN_FILENO
+            ) < 0) {
 
-        if (dup2(tty_fd, STDOUT_FILENO) < 0)
-            perror("raccoon-init: dup2 stdout");
+            perror(
+                "raccoon-init: dup2 stdin"
+            );
+        }
 
-        if (dup2(tty_fd, STDERR_FILENO) < 0)
-            perror("raccoon-init: dup2 stderr");
+        if (dup2(
+                tty_fd,
+                STDOUT_FILENO
+            ) < 0) {
+
+            perror(
+                "raccoon-init: dup2 stdout"
+            );
+        }
+
+        if (dup2(
+                tty_fd,
+                STDERR_FILENO
+            ) < 0) {
+
+            perror(
+                "raccoon-init: dup2 stderr"
+            );
+        }
 
 
         if (tty_fd > STDERR_FILENO)
@@ -225,11 +317,9 @@ static pid_t start_shell(void)
 
 
         /*
-         * -------------------------------------------------
          * PID 1 ignores these signals.
          *
          * Restore normal behavior for the shell.
-         * -------------------------------------------------
          */
 
         signal(SIGINT,  SIG_DFL);
@@ -242,12 +332,7 @@ static pid_t start_shell(void)
 
 
         /*
-         * -------------------------------------------------
          * Execute BusyBox shell directly.
-         *
-         * No cttyhack is needed anymore because we
-         * explicitly created the controlling terminal.
-         * -------------------------------------------------
          */
 
         char *argv[] = {
@@ -267,17 +352,17 @@ static pid_t start_shell(void)
          * exec failed.
          */
 
-        perror("raccoon-init: exec shell");
+        perror(
+            "raccoon-init: exec shell"
+        );
 
         _exit(127);
     }
 
 
-    /*
-     * -----------------------------------------------------
-     * Parent / PID 1
-     * -----------------------------------------------------
-     */
+    /* -----------------------------------------------------
+     * PID 1 parent
+     * ----------------------------------------------------- */
 
     printf(
         "raccoon-init: shell started (PID %d)\n",
@@ -288,37 +373,7 @@ static pid_t start_shell(void)
 
     return pid;
 }
-/* ---------------------------------------------------------
- * Reap children without blocking
- * --------------------------------------------------------- */
 
-static void reap_children(void)
-{
-    int status;
-
-    while (1) {
-        pid_t pid = waitpid(-1, &status, WNOHANG);
-
-        if (pid <= 0)
-            break;
-
-        if (WIFEXITED(status)) {
-            printf(
-                "raccoon-init: reaped child %d (exit=%d)\n",
-                pid,
-                WEXITSTATUS(status)
-            );
-        } else if (WIFSIGNALED(status)) {
-            printf(
-                "raccoon-init: reaped child %d (signal=%d)\n",
-                pid,
-                WTERMSIG(status)
-            );
-        }
-
-        fflush(stdout);
-    }
-}
 
 /* ---------------------------------------------------------
  * PID 1 main supervisor
@@ -327,67 +382,183 @@ static void reap_children(void)
 int main(void)
 {
     /*
-     * PID 1 must not accidentally die from normal terminal
-     * signals.
+     * -----------------------------------------------------
+     * PID 1 signal policy
+     * -----------------------------------------------------
      *
-     * The shell handles Ctrl+C / Ctrl+Z for itself.
+     * PID 1 ignores normal terminal signals.
+     *
+     * Child processes restore default behavior.
      */
+
     signal(SIGTERM, SIG_IGN);
     signal(SIGINT,  SIG_IGN);
     signal(SIGQUIT, SIG_IGN);
     signal(SIGHUP,  SIG_IGN);
 
+
     /*
-     * Basic system initialization.
+     * -----------------------------------------------------
+     * Basic system initialization
+     * -----------------------------------------------------
      */
+
     mount_filesystems();
+
     setup_console();
+
     setup_hostname();
+
+
+    /*
+     * -----------------------------------------------------
+     * Initialize service manager
+     * -----------------------------------------------------
+     */
+
+    service_manager_init();
+
+
+    /*
+     * -----------------------------------------------------
+     * Register Phase 2 test service
+     * -----------------------------------------------------
+     *
+     * This service intentionally stays alive.
+     *
+     * restart = 1 means PID 1 should restart it if
+     * the process exits.
+     */
+
+    if (service_register(
+            "raccoon-test",
+            "/bin/busybox sh -c 'while true; do sleep 30; done'",
+            1
+        ) < 0) {
+
+        fprintf(
+            stderr,
+            "raccoon-init: failed to register "
+            "raccoon-test service\n"
+        );
+    }
+
+
+    /*
+     * -----------------------------------------------------
+     * Boot banner
+     * -----------------------------------------------------
+     */
 
     print_banner();
 
-    printf("Starting Raccoon Init supervisor...\n");
-    printf("Starting Sequential Raccoon shell...\n\n");
+
+    printf(
+        "Starting Raccoon Init supervisor...\n"
+    );
+
+    printf(
+        "Starting Raccoon services...\n"
+    );
+
     fflush(stdout);
 
+
     /*
-     * Main supervisor loop.
-     *
-     * PID 1 never becomes the shell.
-     * The shell remains a child process.
+     * -----------------------------------------------------
+     * Start all registered services
+     * -----------------------------------------------------
      */
+
+    service_start_all();
+
+
+    /*
+     * -----------------------------------------------------
+     * Start interactive shell
+     * -----------------------------------------------------
+     */
+
+    printf(
+        "Starting Sequential Raccoon shell...\n\n"
+    );
+
+    fflush(stdout);
+
+
+    /*
+     * -----------------------------------------------------
+     * Main supervisor loop
+     * -----------------------------------------------------
+     *
+     * PID 1 remains alive permanently.
+     *
+     * waitpid(-1) allows PID 1 to supervise:
+     *
+     *   - the interactive shell
+     *   - registered services
+     *   - future system services
+     */
+
     while (1) {
 
         pid_t shell_pid = start_shell();
 
+
         /*
-         * If fork() fails, don't spin at 100% CPU.
+         * If shell creation fails,
+         * avoid a rapid fork loop.
          */
+
         if (shell_pid < 0) {
+
             sleep(1);
+
             continue;
         }
 
+
         /*
-         * Wait for children.
+         * -------------------------------------------------
+         * Wait for any child process.
+         * -------------------------------------------------
          */
+
         while (1) {
+
             int status;
 
-            pid_t child = waitpid(-1, &status, 0);
+            pid_t child =
+                waitpid(
+                    -1,
+                    &status,
+                    0
+                );
+
+
+            /*
+             * waitpid interrupted by signal.
+             */
 
             if (child < 0) {
 
                 if (errno == EINTR)
                     continue;
 
-                perror("raccoon-init: waitpid");
+                perror(
+                    "raccoon-init: waitpid"
+                );
+
                 break;
             }
 
+
             /*
-             * Our shell exited.
+             * -------------------------------------------------
+             * Interactive shell exited.
+             * -------------------------------------------------
              */
+
             if (child == shell_pid) {
 
                 if (WIFEXITED(status)) {
@@ -409,52 +580,63 @@ int main(void)
 
                 fflush(stdout);
 
+
                 /*
-                 * Break out of the child-wait loop.
+                 * Leave the inner wait loop.
                  *
                  * The outer loop will restart the shell.
                  */
+
                 break;
             }
 
+
             /*
+             * -------------------------------------------------
              * Another child exited.
              *
-             * This is important for future v0.2 services.
+             * This may be a registered service.
+             *
+             * Give the service manager ownership of the
+             * exit event.
+             * -------------------------------------------------
              */
-            if (WIFEXITED(status)) {
 
-                printf(
-                    "raccoon-init: child %d exited "
-                    "with status %d\n",
-                    child,
-                    WEXITSTATUS(status)
-                );
+            service_handle_exit(
+                child,
+                status
+            );
 
-            } else if (WIFSIGNALED(status)) {
 
-                printf(
-                    "raccoon-init: child %d terminated "
-                    "by signal %d\n",
-                    child,
-                    WTERMSIG(status)
-                );
-            }
+            /*
+             * -------------------------------------------------
+             * Restart failed services.
+             * -------------------------------------------------
+             */
 
-            fflush(stdout);
+            service_restart_failed();
         }
 
+
         /*
-         * Small delay before restarting the shell.
+         * -----------------------------------------------------
+         * Small delay before restarting shell.
+         * -----------------------------------------------------
          *
          * Prevents a broken shell from creating a rapid
          * fork/exec loop.
          */
+
         sleep(1);
 
-        printf("raccoon-init: restarting shell...\n");
+
+        printf(
+            "raccoon-init: restarting shell...\n"
+        );
+
         fflush(stdout);
     }
+
 
     return 0;
 }
