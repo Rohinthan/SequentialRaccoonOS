@@ -150,7 +150,7 @@ static void print_banner(void)
     );
 
     printf(
-        "   Sequential Raccoon OS v0.3.0\n"
+        "   Sequential Raccoon OS v0.4.0\n"
     );
 
     printf(
