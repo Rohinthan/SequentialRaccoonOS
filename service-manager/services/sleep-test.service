@@ -1,0 +1,2 @@
+name=sleep-test
+command=/bin/sleep 60
