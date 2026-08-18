@@ -16,3 +16,6 @@ rootfs/
 # Temporary/editor files
 *~
 *.swp
+
+# SCRPD runtime state
+service-manager/state/

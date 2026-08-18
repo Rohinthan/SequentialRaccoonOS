@@ -6,13 +6,16 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "scrpd_runtime.h"
 #include "scrpd_service.h"
 #include "scrpd_supervised_start.h"
 #include "scrpd_supervisor.h"
 #include "scrpd_supervisor_recover.h"
+#include "scrpd_runtime_state.h"
 
 static volatile sig_atomic_t running = 1;
+
+static const char *STATE_DIRECTORY =
+	"service-manager/state";
 
 static void handle_signal(int signal)
 {
@@ -65,6 +68,42 @@ int main(int argc, char **argv)
     printf("Command: %s\n", service.command);
     printf("Root:    %s\n", root);
 
+int restored = 0;
+
+if (scrpd_runtime_state_load(
+        &runtime,
+        "service-manager/state"
+    ) == 0) {
+
+    printf("SCRPD-SUPERVISE: persisted state loaded\n");
+
+    printf(
+        "  Name:  %s\n"
+        "  PID:   %ld\n"
+        "  State: %s\n",
+        runtime.runtime.name,
+        runtime.runtime.pid,
+        scrpd_state_name(runtime.runtime.state)
+    );
+
+    if (scrpd_runtime_is_alive(&runtime)) {
+        restored = 1;
+
+        printf(
+            "SCRPD-SUPERVISE: existing service is alive\n"
+        );
+    } else {
+        runtime.runtime.state = SCRPD_STATE_FAILED;
+
+        printf(
+            "SCRPD-SUPERVISE: persisted PID is stale\n"
+        );
+    }
+    }
+
+    if (!restored &&
+        runtime.runtime.state != SCRPD_STATE_FAILED) {
+
     if (scrpd_supervised_start(
             &runtime,
             &service,
@@ -77,7 +116,22 @@ int main(int argc, char **argv)
         );
 
         return 1;
-    }
+     }
+     }
+
+   if (scrpd_runtime_state_save(
+	&runtime,
+	STATE_DIRECTORY
+      ) != 0) {
+
+      fprintf(
+	 stderr,
+	 "SCRPD-SUPERVISE: failed to save recovered state\n"
+      );
+
+      return 1;
+
+   }
 
     printf("Supervisor loop started\n");
 
